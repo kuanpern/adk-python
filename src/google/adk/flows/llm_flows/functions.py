@@ -267,36 +267,27 @@ async def handle_function_calls_live(
       # in python debugger.
       function_args = function_call.args or {}
       function_response = None
-      # # Calls the tool if before_tool_callback does not exist or returns None.
-      # if agent.before_tool_callback:
-      #   function_response = agent.before_tool_callback(
-      #       tool, function_args, tool_context
-      #   )
-      if agent.before_tool_callback:
-        function_response = agent.before_tool_callback(
+
+      # Handle before_tool_callbacks - iterate through the canonical callback
+      # list
+      for callback in agent.canonical_before_tool_callbacks:
+        function_response = callback(
             tool=tool, args=function_args, tool_context=tool_context
         )
         if inspect.isawaitable(function_response):
           function_response = await function_response
+        if function_response:
+          break
 
-      if not function_response:
+      if function_response is None:
         function_response = await _process_function_live_helper(
             tool, tool_context, function_call, function_args, invocation_context
         )
 
       # Calls after_tool_callback if it exists.
-      # if agent.after_tool_callback:
-      #   new_response = agent.after_tool_callback(
-      #       tool,
-      #       function_args,
-      #       tool_context,
-      #       function_response,
-      #   )
-      #   if new_response:
-      #     function_response = new_response
       altered_function_response = None
-      if agent.after_tool_callback:
-        altered_function_response = agent.after_tool_callback(
+      for callback in agent.canonical_after_tool_callbacks:
+        altered_function_response = callback(
             tool=tool,
             args=function_args,
             tool_context=tool_context,
@@ -304,6 +295,9 @@ async def handle_function_calls_live(
         )
         if inspect.isawaitable(altered_function_response):
           altered_function_response = await altered_function_response
+        if altered_function_response:
+          break
+
       if altered_function_response is not None:
         function_response = altered_function_response
 
@@ -511,6 +505,16 @@ def __build_response_event(
   return function_response_event
 
 
+def deep_merge_dicts(d1: dict, d2: dict) -> dict:
+  """Recursively merges d2 into d1."""
+  for key, value in d2.items():
+    if key in d1 and isinstance(d1[key], dict) and isinstance(value, dict):
+      d1[key] = deep_merge_dicts(d1[key], value)
+    else:
+      d1[key] = value
+  return d1
+
+
 def merge_parallel_function_response_events(
     function_response_events: list['Event'],
 ) -> 'Event':
@@ -529,15 +533,17 @@ def merge_parallel_function_response_events(
   base_event = function_response_events[0]
 
   # Merge actions from all events
-
-  merged_actions = EventActions()
-  merged_requested_auth_configs = {}
+  merged_actions_data = {}
   for event in function_response_events:
-    merged_requested_auth_configs.update(event.actions.requested_auth_configs)
-    merged_actions = merged_actions.model_copy(
-        update=event.actions.model_dump()
-    )
-  merged_actions.requested_auth_configs = merged_requested_auth_configs
+    if event.actions:
+      # Use `by_alias=True` because it converts the model to a dictionary while respecting field aliases, ensuring that the enum fields are correctly handled without creating a duplicate.
+      merged_actions_data = deep_merge_dicts(
+          merged_actions_data,
+          event.actions.model_dump(exclude_none=True, by_alias=True),
+      )
+
+  merged_actions = EventActions.model_validate(merged_actions_data)
+
   # Create the new merged event
   merged_event = Event(
       invocation_id=Event.new_id(),

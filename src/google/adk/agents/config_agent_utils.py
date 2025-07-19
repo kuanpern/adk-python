@@ -17,6 +17,7 @@ from __future__ import annotations
 import importlib
 import os
 from typing import Any
+from typing import List
 
 import yaml
 
@@ -24,6 +25,7 @@ from ..utils.feature_decorator import working_in_progress
 from .agent_config import AgentConfig
 from .base_agent import BaseAgent
 from .base_agent import SubAgentConfig
+from .common_configs import CodeConfig
 from .llm_agent import LlmAgent
 from .llm_agent import LlmAgentConfig
 from .loop_agent import LoopAgent
@@ -138,3 +140,45 @@ def _resolve_sub_agent_code_reference(code: str) -> Any:
     raise ValueError(f"Invalid code reference to a callable: {code}")
 
   return obj
+
+
+@working_in_progress("resolve_code_reference is not ready for use.")
+def resolve_code_reference(code_config: CodeConfig) -> Any:
+  """Resolve a code reference to actual Python object.
+
+  Args:
+    code_config: The code configuration (CodeConfig).
+
+  Returns:
+    The resolved Python object.
+
+  Raises:
+    ValueError: If the code reference cannot be resolved.
+  """
+  if not code_config or not code_config.name:
+    raise ValueError("Invalid CodeConfig.")
+
+  module_path, obj_name = code_config.name.rsplit(".", 1)
+  module = importlib.import_module(module_path)
+  obj = getattr(module, obj_name)
+
+  if code_config.args and callable(obj):
+    kwargs = {arg.name: arg.value for arg in code_config.args if arg.name}
+    positional_args = [arg.value for arg in code_config.args if not arg.name]
+
+    return obj(*positional_args, **kwargs)
+  else:
+    return obj
+
+
+@working_in_progress("resolve_callbacks is not ready for use.")
+def resolve_callbacks(callbacks_config: List[CodeConfig]) -> Any:
+  """Resolve callbacks from configuration.
+
+  Args:
+    callbacks_config: List of callback configurations (CodeConfig objects).
+
+  Returns:
+    List of resolved callback objects.
+  """
+  return [resolve_code_reference(config) for config in callbacks_config]
