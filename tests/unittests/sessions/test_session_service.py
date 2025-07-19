@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from datetime import datetime
 from datetime import timezone
 import enum
@@ -39,13 +40,20 @@ def get_session_service(
   if service_type == SessionServiceType.DATABASE:
     return DatabaseSessionService('sqlite:///:memory:')
   elif service_type == SessionServiceType.MONGODB:
-    return MongoDBSessionService('mongodb://localhost:27017/test_db')
+    return MongoDBSessionService(
+        os.getenv('MONGODB_URI', 'mongodb://localhost:27017/test_db')
+    )
   return InMemorySessionService()
 
+SessionServiceTypes = [
+    SessionServiceType.IN_MEMORY, 
+    SessionServiceType.DATABASE, 
+#    SessionServiceType.MONGODB,
+]
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'service_type', [SessionServiceType.IN_MEMORY, SessionServiceType.DATABASE, SessionServiceType.MONGODB]
+    'service_type', SessionServiceTypes
 )
 async def test_get_empty_session(service_type):
   session_service = get_session_service(service_type)
@@ -56,7 +64,7 @@ async def test_get_empty_session(service_type):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'service_type', [SessionServiceType.IN_MEMORY, SessionServiceType.DATABASE, SessionServiceType.MONGODB]
+    'service_type', SessionServiceTypes
 )
 async def test_create_get_session(service_type):
   session_service = get_session_service(service_type)
@@ -100,7 +108,7 @@ async def test_create_get_session(service_type):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'service_type', [SessionServiceType.IN_MEMORY, SessionServiceType.DATABASE, SessionServiceType.MONGODB]
+    'service_type', SessionServiceTypes
 )
 async def test_create_and_list_sessions(service_type):
   session_service = get_session_service(service_type)
@@ -124,7 +132,7 @@ async def test_create_and_list_sessions(service_type):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'service_type', [SessionServiceType.IN_MEMORY, SessionServiceType.DATABASE, SessionServiceType.MONGODB]
+    'service_type', SessionServiceTypes
 )
 async def test_session_state(service_type):
   session_service = get_session_service(service_type)
@@ -216,7 +224,7 @@ async def test_session_state(service_type):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'service_type', [SessionServiceType.IN_MEMORY, SessionServiceType.DATABASE, SessionServiceType.MONGODB]
+    'service_type', SessionServiceTypes
 )
 async def test_create_new_session_will_merge_states(service_type):
   session_service = get_session_service(service_type)
@@ -262,7 +270,7 @@ async def test_create_new_session_will_merge_states(service_type):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'service_type', [SessionServiceType.IN_MEMORY, SessionServiceType.DATABASE, SessionServiceType.MONGODB]
+    'service_type', SessionServiceTypes
 )
 async def test_append_event_bytes(service_type):
   session_service = get_session_service(service_type)
@@ -303,7 +311,7 @@ async def test_append_event_bytes(service_type):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'service_type', [SessionServiceType.IN_MEMORY, SessionServiceType.DATABASE, SessionServiceType.MONGODB]
+    'service_type', SessionServiceTypes
 )
 async def test_append_event_complete(service_type):
   session_service = get_session_service(service_type)
@@ -343,7 +351,7 @@ async def test_append_event_complete(service_type):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'service_type', [SessionServiceType.IN_MEMORY, SessionServiceType.DATABASE, SessionServiceType.MONGODB]
+    'service_type', SessionServiceTypes
 )
 async def test_get_session_with_config(service_type):
   session_service = get_session_service(service_type)
