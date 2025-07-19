@@ -131,6 +131,8 @@ extensions = [
   "toolbox-core>=0.1.0",                  # For tools.toolbox_toolset.ToolboxToolset
 ]
 
+# Other optional dependencies
+pymongo = ["pymongo>=4.0"]                # Enable `mongodb` support
 
 [tool.pyink]
 # Format py files following Google style-guide
