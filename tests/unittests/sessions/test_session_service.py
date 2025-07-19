@@ -117,8 +117,9 @@ async def test_create_and_list_sessions(service_type):
       app_name=app_name, user_id=user_id
   )
   sessions = list_sessions_response.sessions
-  for i in range(len(sessions)):
-    assert sessions[i].id == session_ids[i]
+  retrieved_ids = {s.id for s in sessions}
+  expected_ids = set(session_ids)
+  assert retrieved_ids == expected_ids
 
 
 @pytest.mark.asyncio
