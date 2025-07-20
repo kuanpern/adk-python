@@ -48,7 +48,7 @@ def get_session_service(
 SessionServiceTypes = [
     SessionServiceType.IN_MEMORY, 
     SessionServiceType.DATABASE, 
-#    SessionServiceType.MONGODB,
+    SessionServiceType.MONGODB,
 ]
 
 @pytest.mark.asyncio
@@ -128,6 +128,13 @@ async def test_create_and_list_sessions(service_type):
   retrieved_ids = {s.id for s in sessions}
   expected_ids = set(session_ids)
   assert retrieved_ids == expected_ids
+
+  # clean up the database
+  for session_id in session_ids:
+    await session_service.delete_session(
+        app_name=app_name, user_id=user_id, session_id=session_id
+    )
+    
 
 
 @pytest.mark.asyncio
@@ -221,6 +228,19 @@ async def test_session_state(service_type):
 
   assert len(session_mismatch.events) == 0
 
+  # Clean up the database
+  for session_id in [session_id_11, session_id_12, session_id_2]:
+    await session_service.delete_session(
+        app_name=app_name, user_id=user_id_1, session_id=session_id
+    )
+  await session_service.delete_session(
+      app_name=app_name, user_id=user_id_2, session_id=session_id_2
+  )
+  await session_service.delete_session(
+      app_name=app_name, user_id=user_id_malicious, session_id=session_id_11
+  )
+  
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -266,6 +286,13 @@ async def test_create_new_session_will_merge_states(service_type):
   assert session_2.state.get('user:key1') == 'value1'
   assert not session_2.state.get('key1')
   assert not session_2.state.get('temp:key')
+
+  # Clean up the database
+  for session_id in [session_id_1, session_id_2]:
+    await session_service.delete_session(
+        app_name=app_name, user_id=user_id, session_id=session_id
+    )
+    
 
 
 @pytest.mark.asyncio
@@ -340,7 +367,6 @@ async def test_append_event_complete(service_type):
       interrupted=True,
   )
   await session_service.append_event(session=session, event=event)
-
   assert (
       await session_service.get_session(
           app_name=app_name, user_id=user_id, session_id=session.id
