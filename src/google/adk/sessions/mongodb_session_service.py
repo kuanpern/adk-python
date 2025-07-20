@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import copy
-from datetime import datetime
-from datetime import timezone
+from datetime import timezone, datetime, timedelta
 import logging
 from typing import Any
 from typing import Optional
 import uuid
 
-# Removed SQLAlchemy specific imports
-# from google.genai import types # Assuming types.Action is still defined and Pydantic based
 from pymongo import MongoClient
 from pymongo.errors import (
     ConnectionFailure,
@@ -39,13 +36,8 @@ class MongoDBSessionService(BaseSessionService):
     def __init__(self, db_url: str, **kwargs: Any):
         """Initializes the database session service with a database URL."""
         try:
-            # PyMongo connects lazily. InvalidURI is checked immediately.
             self.client = MongoClient(db_url, **kwargs)
-
-            # The database name is usually part of the db_url (e.g., mongodb://localhost:27017/my_database)
-            # If not provided in the URL, PyMongo defaults to 'test'.
             self.db = self.client.get_default_database()
-
         except InvalidURI as e:
             raise ValueError(
                 f"Invalid MongoDB connection URI format for '{db_url}': {e}"
@@ -65,32 +57,30 @@ class MongoDBSessionService(BaseSessionService):
         self.app_states_collection = self.db["app_states"]
         self.user_states_collection = self.db["user_states"]
 
-        # Create indexes to ensure uniqueness and optimize queries, mimicking relational behavior.
-        # Sessions: Unique compound index on app_name, user_id, id (acts as primary key)
-        # This is implicitly handled if `_id` is chosen as the compound key as done below.
-        # If using `ObjectId` for `_id` for sessions:
-        # self.sessions_collection.create_index([
-        #    ("app_name", 1), ("user_id", 1), ("id", 1)
-        # ], unique=True)
+        # Create indexes
+        self.sessions_collection.create_index([
+           ("app_name", 1), ("user_id", 1), ("id", 1)
+        ], unique=True)
 
-        # For Events:
-        # Mimics foreign key for session lookups and ensures unique event ID within session.
-        # Note: If Event.id is used as _id, we only need to ensure the _id field's uniqueness.
-        # But since `session_id` and `timestamp` are frequently queried, add indexes on those.
-        # (app_name, user_id, session_id, id) is unique because `id` is primary key for event
-        # and `(app_name, user_id, session_id)` represents the session.
         self.events_collection.create_index(
             [
                 ("session_id", 1),
                 ("timestamp", 1),
-            ]  # For sorting by timestamp in get_session
+            ]
         )
-        # An index on `id` (which is _id for events documents) is automatically present.
 
         self.local_timezone = get_localzone()
         logger.info(
             f"MongoDB session service initialized. Connected to DB: {self.db.name} at {db_url}"
         )
+
+    # function to round timestamp to milliseconds precision
+    def _round_timestamp(self, timestamp: datetime) -> datetime:
+        return timestamp - timedelta(microseconds=timestamp.microsecond % 1000)
+
+    def _hash_dict(self, fields: dict[str, Any]):
+        # order dict, then hash
+        return hash(tuple(sorted(fields.items())))
 
     @override
     async def create_session(
@@ -104,6 +94,7 @@ class MongoDBSessionService(BaseSessionService):
         # Generate session_id if not provided
         session_id = session_id if session_id is not None else str(uuid.uuid4())
         current_utc_time = datetime.now(timezone.utc)
+        current_utc_time = self._round_timestamp(current_utc_time)
 
         # Define the composite _id for the session document
         session_doc_id = {"app_name": app_name, "user_id": user_id, "id": session_id}
@@ -111,7 +102,7 @@ class MongoDBSessionService(BaseSessionService):
         # Fetch app and user states from storage (by their respective _id formats)
         storage_app_state_doc = self.app_states_collection.find_one({"_id": app_name})
         storage_user_state_doc = self.user_states_collection.find_one(
-            {"_id": {"app_name": app_name, "user_id": user_id}}
+            {"app_name": app_name, "user_id": user_id}
         )
 
         # Initialize states from fetched documents or empty dicts
@@ -133,14 +124,15 @@ class MongoDBSessionService(BaseSessionService):
         )
         # Update/Upsert user state document
         self.user_states_collection.update_one(
-            {"_id": {"app_name": app_name, "user_id": user_id}},
+            {"app_name": app_name, "user_id": user_id},
             {"$set": {"state": user_state, "update_time": current_utc_time}},
             upsert=True,
         )
 
         # Prepare session document
+        hash_id = self._hash_dict(session_doc_id)
         session_document = {
-            "_id": session_doc_id,  # Use composite _id
+            "_id": hash_id,  # Use composite _id
             "app_name": app_name,
             "user_id": user_id,
             "id": session_id,
@@ -183,17 +175,17 @@ class MongoDBSessionService(BaseSessionService):
         session_id: str,
         config: Optional[GetSessionConfig] = None,
     ) -> Optional[Session]:
-        # Define _id for session lookup
-        session_doc_id = {"app_name": app_name, "user_id": user_id, "id": session_id}
 
-        session_document = self.sessions_collection.find_one(session_doc_id)
+        session_document = self.sessions_collection.find_one({
+            "app_name": app_name, "user_id": user_id, "id": session_id
+        })
         if session_document is None:
             return None
 
         # Fetch app, user, and session states from storage
         storage_app_state_doc = self.app_states_collection.find_one({"_id": app_name})
         storage_user_state_doc = self.user_states_collection.find_one(
-            {"_id": {"app_name": app_name, "user_id": user_id}}
+            {"app_name": app_name, "user_id": user_id}
         )
 
         app_state = storage_app_state_doc["state"] if storage_app_state_doc else {}
@@ -240,6 +232,7 @@ class MongoDBSessionService(BaseSessionService):
             session_document["update_time"].replace(tzinfo=timezone.utc).timestamp()
         )
 
+        # Create and return the Session object
         session = Session(
             app_name=app_name,
             user_id=user_id,
@@ -326,7 +319,7 @@ class MongoDBSessionService(BaseSessionService):
             {"_id": session.app_name}
         )
         storage_user_state_doc = self.user_states_collection.find_one(
-            {"_id": {"app_name": session.app_name, "user_id": session.user_id}}
+            {"app_name": session.app_name, "user_id": session.user_id}
         )
 
         app_state = storage_app_state_doc["state"] if storage_app_state_doc else {}
@@ -344,6 +337,7 @@ class MongoDBSessionService(BaseSessionService):
 
         # 4. Prepare updates and update states in MongoDB
         update_time_for_db = datetime.now(timezone.utc)
+        update_time_for_db = self._round_timestamp(update_time_for_db)
 
         # Update app state if there are changes
         if app_state_delta:
@@ -358,7 +352,7 @@ class MongoDBSessionService(BaseSessionService):
         if user_state_delta:
             user_state.update(user_state_delta)
             self.user_states_collection.update_one(
-                {"_id": {"app_name": session.app_name, "user_id": session.user_id}},
+                {"app_name": session.app_name, "user_id": session.user_id},
                 {"$set": {"state": user_state, "update_time": update_time_for_db}},
                 upsert=True,
             )
@@ -389,6 +383,10 @@ class MongoDBSessionService(BaseSessionService):
 
     def _from_event(self, session: Session, event: Event) -> dict[str, Any]:
         """Converts an Event object to a MongoDB document dictionary."""
+
+        timestamp = datetime.fromtimestamp(event.timestamp, tz=timezone.utc)
+        timestamp = self._round_timestamp(timestamp)
+
         doc = {
             "_id": event.id,  # Using event.id as _id for event documents
             "id": event.id,
@@ -405,7 +403,7 @@ class MongoDBSessionService(BaseSessionService):
             "app_name": session.app_name,
             "user_id": session.user_id,
             # Store Python datetime objects directly (MongoDB handles UTC BSON date)
-            "timestamp": datetime.fromtimestamp(event.timestamp, tz=timezone.utc),
+            "timestamp": timestamp,
             # Store set[str] as a list directly in MongoDB.
             "long_running_tool_ids": (
                 list(event.long_running_tool_ids) if event.long_running_tool_ids else []
@@ -434,6 +432,10 @@ class MongoDBSessionService(BaseSessionService):
             else doc["timestamp"]
         )
 
+        
+
+
+        # Create and return the Event object
         return Event(
             id=doc["id"],
             invocation_id=doc["invocation_id"],
