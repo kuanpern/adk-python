@@ -286,6 +286,10 @@ class MongoDBSessionService(BaseSessionService):
     async def append_event(self, session: Session, event: Event) -> Event:
         logger.info(f"Append event: {event.id} to session {session.id}")
 
+        # Round timestamp to milliseconds precision, as MongoDB stores BSON dates with millisecond precision.
+        # This prevents potential issues with floating point comparisons later if original timestamp has higher precision.
+        event.timestamp = round(event.timestamp, 3)
+
         if event.partial:
             return event
 
@@ -431,9 +435,6 @@ class MongoDBSessionService(BaseSessionService):
             if isinstance(doc["timestamp"], datetime)
             else doc["timestamp"]
         )
-
-        
-
 
         # Create and return the Event object
         return Event(
