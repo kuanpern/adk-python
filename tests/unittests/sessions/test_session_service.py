@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from datetime import datetime
 from datetime import timezone
 import enum
@@ -19,6 +20,7 @@ import enum
 from google.adk.events import Event
 from google.adk.events import EventActions
 from google.adk.sessions import DatabaseSessionService
+from google.adk.sessions import MongoDBSessionService
 from google.adk.sessions import InMemorySessionService
 from google.adk.sessions.base_session_service import GetSessionConfig
 from google.genai import types
@@ -28,6 +30,7 @@ import pytest
 class SessionServiceType(enum.Enum):
   IN_MEMORY = 'IN_MEMORY'
   DATABASE = 'DATABASE'
+  MONGODB  = 'MONGODB'
 
 
 def get_session_service(
@@ -36,12 +39,21 @@ def get_session_service(
   """Creates a session service for testing."""
   if service_type == SessionServiceType.DATABASE:
     return DatabaseSessionService('sqlite:///:memory:')
+  elif service_type == SessionServiceType.MONGODB:
+    return MongoDBSessionService(
+        os.getenv('MONGODB_URI', 'mongodb://localhost:27017/test_db')
+    )
   return InMemorySessionService()
 
+SessionServiceTypes = [
+    SessionServiceType.IN_MEMORY, 
+    SessionServiceType.DATABASE, 
+    SessionServiceType.MONGODB,
+]
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'service_type', [SessionServiceType.IN_MEMORY, SessionServiceType.DATABASE]
+    'service_type', SessionServiceTypes
 )
 async def test_get_empty_session(service_type):
   session_service = get_session_service(service_type)
@@ -52,7 +64,7 @@ async def test_get_empty_session(service_type):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'service_type', [SessionServiceType.IN_MEMORY, SessionServiceType.DATABASE]
+    'service_type', SessionServiceTypes
 )
 async def test_create_get_session(service_type):
   session_service = get_session_service(service_type)
@@ -96,7 +108,7 @@ async def test_create_get_session(service_type):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'service_type', [SessionServiceType.IN_MEMORY, SessionServiceType.DATABASE]
+    'service_type', SessionServiceTypes
 )
 async def test_create_and_list_sessions(service_type):
   session_service = get_session_service(service_type)
@@ -113,13 +125,21 @@ async def test_create_and_list_sessions(service_type):
       app_name=app_name, user_id=user_id
   )
   sessions = list_sessions_response.sessions
-  for i in range(len(sessions)):
-    assert sessions[i].id == session_ids[i]
+  retrieved_ids = {s.id for s in sessions}
+  expected_ids = set(session_ids)
+  assert retrieved_ids == expected_ids
+
+  # clean up the database
+  for session_id in session_ids:
+    await session_service.delete_session(
+        app_name=app_name, user_id=user_id, session_id=session_id
+    )
+    
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'service_type', [SessionServiceType.IN_MEMORY, SessionServiceType.DATABASE]
+    'service_type', SessionServiceTypes
 )
 async def test_session_state(service_type):
   session_service = get_session_service(service_type)
@@ -208,10 +228,23 @@ async def test_session_state(service_type):
 
   assert len(session_mismatch.events) == 0
 
+  # Clean up the database
+  for session_id in [session_id_11, session_id_12, session_id_2]:
+    await session_service.delete_session(
+        app_name=app_name, user_id=user_id_1, session_id=session_id
+    )
+  await session_service.delete_session(
+      app_name=app_name, user_id=user_id_2, session_id=session_id_2
+  )
+  await session_service.delete_session(
+      app_name=app_name, user_id=user_id_malicious, session_id=session_id_11
+  )
+  
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'service_type', [SessionServiceType.IN_MEMORY, SessionServiceType.DATABASE]
+    'service_type', SessionServiceTypes
 )
 async def test_create_new_session_will_merge_states(service_type):
   session_service = get_session_service(service_type)
@@ -254,10 +287,17 @@ async def test_create_new_session_will_merge_states(service_type):
   assert not session_2.state.get('key1')
   assert not session_2.state.get('temp:key')
 
+  # Clean up the database
+  for session_id in [session_id_1, session_id_2]:
+    await session_service.delete_session(
+        app_name=app_name, user_id=user_id, session_id=session_id
+    )
+    
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'service_type', [SessionServiceType.IN_MEMORY, SessionServiceType.DATABASE]
+    'service_type', SessionServiceTypes
 )
 async def test_append_event_bytes(service_type):
   session_service = get_session_service(service_type)
@@ -298,7 +338,7 @@ async def test_append_event_bytes(service_type):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'service_type', [SessionServiceType.IN_MEMORY, SessionServiceType.DATABASE]
+    'service_type', SessionServiceTypes
 )
 async def test_append_event_complete(service_type):
   session_service = get_session_service(service_type)
@@ -327,7 +367,6 @@ async def test_append_event_complete(service_type):
       interrupted=True,
   )
   await session_service.append_event(session=session, event=event)
-
   assert (
       await session_service.get_session(
           app_name=app_name, user_id=user_id, session_id=session.id
@@ -338,7 +377,7 @@ async def test_append_event_complete(service_type):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    'service_type', [SessionServiceType.IN_MEMORY, SessionServiceType.DATABASE]
+    'service_type', SessionServiceTypes
 )
 async def test_get_session_with_config(service_type):
   session_service = get_session_service(service_type)
