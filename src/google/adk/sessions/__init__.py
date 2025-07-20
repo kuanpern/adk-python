@@ -39,3 +39,12 @@ except ImportError:
       'DatabaseSessionService require sqlalchemy>=2.0, please ensure it is'
       ' installed correctly.'
   )
+
+try:
+  from .mongodb_session_service import MongoDBSessionService
+
+  __all__.append('MongoDBSessionService')
+except ImportError:
+  logger.debug(
+      'MongoDBSessionService require pymongo>=4.0, please ensure it is'
+      ' installed correctly.')
