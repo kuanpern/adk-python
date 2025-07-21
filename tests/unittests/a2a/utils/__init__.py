@@ -11,14 +11,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-from .tool_context import ToolContext
-
-
-def exit_loop(tool_context: ToolContext):
-  """Exits the loop.
-
-  Call this function only when you are instructed to do so.
-  """
-  tool_context.actions.escalate = True
-  tool_context.actions.skip_summarization = True
