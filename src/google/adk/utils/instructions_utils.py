@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
+import jinja2
 
 from ..agents.readonly_context import ReadonlyContext
 from ..sessions.state import State
@@ -26,10 +27,10 @@ __all__ = [
 
 logger = logging.getLogger('google_adk.' + __name__)
 
-
 async def inject_session_state(
     template: str,
     readonly_context: ReadonlyContext,
+    use_jinja2: bool = False,
 ) -> str:
   """Populates values in the instruction template, e.g. state, artifact, etc.
 
@@ -60,6 +61,28 @@ async def inject_session_state(
   Args:
     template: The instruction template.
     readonly_context: The read-only context
+    use_jinja2: Whether to use Jinja2 for rendering, otherwise use regex.
+
+  Returns:
+    The instruction template with values populated.
+  """
+
+  if use_jinja2:
+    return await _render_with_jinja2(template, readonly_context)
+  else:
+    return await _render_with_regex(template, readonly_context)
+  # end if
+# end def
+
+async def _render_with_regex(
+    template: str,
+    readonly_context: ReadonlyContext,
+) -> str:
+  """Populates values in the instruction template using regex.
+
+  Args:
+    template: str,
+    readonly_context: ReadonlyContext,
 
   Returns:
     The instruction template with values populated.
@@ -123,6 +146,50 @@ async def inject_session_state(
 
   return await _async_sub(r'{+[^{}]*}+', _replace_match, template)
 
+
+async def _render_with_jinja2(template: str, readonly_context: ReadonlyContext) -> str:
+  """Renders the template using the Jinja2 engine.
+
+  Args:
+    template: str
+    readonly_context: ReadonlyContext
+
+  Returns:
+    The instruction template with values populated.
+  """
+
+  invocation_context = readonly_context._invocation_context
+
+  # Create a dictionary of variables to pass to the template.
+  template_variables = {}  
+  if invocation_context.session and invocation_context.session.state:
+    template_variables['state'] = invocation_context.session.state
+  # end if
+
+  async def get_artifact(filename: str):
+    if invocation_context.artifact_service is None:
+      raise ValueError('Artifact service is not initialized.')
+
+    artifact = await invocation_context.artifact_service.load_artifact(
+      app_name=invocation_context.session.app_name,
+      user_id=invocation_context.session.user_id,
+      session_id=invocation_context.session.id,
+      filename=filename,
+    )
+    if artifact is None:
+      logger.debug(f'Artifact {filename} not found.')
+      return None
+    return str(artifact)
+  # end def
+  template_variables['artifact'] = get_artifact
+      
+  env = jinja2.Environment(enable_async=True)
+  rendered_template = await env.from_string(template).render_async(
+      state=invocation_context.session.state,
+      artifact=get_artifact,
+  )
+  return rendered_template
+# end def
 
 def _is_valid_state_name(var_name):
   """Checks if the variable name is a valid state name.
