@@ -11,14 +11,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
 from google.adk.agents.llm_agent import Agent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.sessions.session import Session
 from google.adk.utils import instructions_utils
 import pytest
+
 from .. import testing_utils
 
 class MockArtifactService:
+
   def __init__(self, artifacts: dict):
     self.artifacts = artifacts
 
@@ -27,6 +30,7 @@ class MockArtifactService:
       return self.artifacts[filename]
     else:
       return None
+
 
 async def _create_test_readonly_context(
     state: dict = None,
@@ -49,8 +53,10 @@ async def _create_test_readonly_context(
       user_id=user_id,
       id=session_id,
   )
+
   invocation_context.artifact_service = artifact_service
   return ReadonlyContext(invocation_context)
+
 
 @pytest.mark.parametrize('use_jinja2', [False, True])
 @pytest.mark.asyncio
