@@ -18,6 +18,8 @@ from google.adk.sessions.session import Session
 from google.adk.utils import instructions_utils
 import pytest
 
+import jinja2.exceptions
+
 from .. import testing_utils
 
 
@@ -118,19 +120,27 @@ async def test_inject_session_state_with_optional_state(use_jinja2):
 async def test_inject_session_state_with_missing_state_raises_key_error(
     use_jinja2,
 ):
-  if use_jinja2:
-    instruction_template = "Hello {{ missing_key }}!"
-  else:
-    instruction_template = "Hello {missing_key}!"
+
   invocation_context = await _create_test_readonly_context(
       state={"user_name": "Foo"}
   )
-  with pytest.raises(
-      KeyError, match="Context variable not found: `missing_key`."
-  ):
-    await instructions_utils.inject_session_state(
-        instruction_template, invocation_context, use_jinja2=use_jinja2
-    )
+
+  if use_jinja2:
+    instruction_template = "Hello {{ missing_key }}!"
+    with pytest.raises(
+      jinja2.exceptions.UndefinedError , match="'missing_key' is undefined"
+    ):
+      await instructions_utils.inject_session_state(
+          instruction_template, invocation_context, use_jinja2=use_jinja2
+      )
+  else:
+    instruction_template = "Hello {missing_key}!"
+    with pytest.raises(
+        KeyError, match="Context variable not found: `missing_key`."
+    ):
+      await instructions_utils.inject_session_state(
+          instruction_template, invocation_context, use_jinja2=use_jinja2
+      )
 
 
 @pytest.mark.parametrize("use_jinja2", [False, True])
@@ -138,22 +148,27 @@ async def test_inject_session_state_with_missing_state_raises_key_error(
 async def test_inject_session_state_with_missing_artifact_raises_key_error(
     use_jinja2,
 ):
-  if use_jinja2:
-    instruction_template = (
-        "The artifact content is: {{ artifact('missing_file') }}"
-    )
-  else:
-    instruction_template = "The artifact content is: {artifact.missing_file}"
   mock_artifact_service = MockArtifactService(
       {"my_file": "This is my artifact content."}
   )
   invocation_context = await _create_test_readonly_context(
       artifact_service=mock_artifact_service
   )
-  with pytest.raises(KeyError, match="Artifact missing_file not found."):
-    await instructions_utils.inject_session_state(
-        instruction_template, invocation_context, use_jinja2=use_jinja2
+
+  if use_jinja2:
+    instruction_template = (
+        "The artifact content is: {{ artifact('missing_file') }}"
     )
+    with pytest.raises(jinja2.exceptions.UndefinedError, match="'invalid' is undefined"):
+      await instructions_utils.inject_session_state(
+          instruction_template, invocation_context, use_jinja2=use_jinja2
+      )
+  else:
+    instruction_template = "The artifact content is: {artifact.missing_file}"
+    with pytest.raises(KeyError, match="Artifact missing_file not found."):
+      await instructions_utils.inject_session_state(
+          instruction_template, invocation_context, use_jinja2=use_jinja2
+      )
 
 
 @pytest.mark.parametrize("use_jinja2", [False, True])
@@ -425,7 +440,7 @@ My favorite fruits are:
 @pytest.mark.asyncio
 async def test_render_with_jinja2_asynchronous_artifact():
   instruction_template = (
-      "The artifact content is: {{ await artifact('my_file') }}"
+      "The artifact content is: {{ artifact('my_file') }}"
   )
   mock_artifact_service = MockArtifactService(
       {"my_file": "This is my artifact content from a new test."}
