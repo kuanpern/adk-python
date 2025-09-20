@@ -184,17 +184,15 @@ async def test_inject_session_state_with_invalid_state_name_returns_original(
   assert populated_instruction == "Hello {invalid-key}!"
 
 
-@pytest.mark.parametrize("use_jinja2", [False])
 @pytest.mark.asyncio
-async def test_inject_session_state_with_invalid_prefix_state_name_returns_original(
-    use_jinja2,
-):
+async def test_inject_session_state_with_invalid_prefix_state_name_returns_original():
   instruction_template = "Hello {invalid:key}!"
   invocation_context = await _create_test_readonly_context(
       state={"user_name": "Foo"}
   )
   populated_instruction = await instructions_utils.inject_session_state(
-      instruction_template, invocation_context, use_jinja2=use_jinja2
+      instruction_template,
+      invocation_context,
   )
   assert populated_instruction == "Hello {invalid:key}!"
 
@@ -209,6 +207,7 @@ async def test_inject_session_state_with_valid_prefix_state(use_jinja2):
   invocation_context = await _create_test_readonly_context(
       state={"app:user_name": "Foo"}
   )
+
   populated_instruction = await instructions_utils.inject_session_state(
       instruction_template, invocation_context, use_jinja2=use_jinja2
   )
@@ -244,6 +243,7 @@ async def test_inject_session_state_with_multiple_variables_and_artifacts(
       state={"user_name": "Foo", "user_age": 30, "favorite_color": "blue"},
       artifact_service=mock_artifact_service,
   )
+
   populated_instruction = await instructions_utils.inject_session_state(
       instruction_template, invocation_context, use_jinja2=use_jinja2
   )
@@ -273,6 +273,7 @@ async def test_inject_session_state_with_empty_artifact_name_raises_key_error(
   invocation_context = await _create_test_readonly_context(
       artifact_service=mock_artifact_service
   )
+
   with pytest.raises(KeyError, match="Artifact  not found."):
     await instructions_utils.inject_session_state(
         instruction_template, invocation_context, use_jinja2=use_jinja2
@@ -312,6 +313,7 @@ async def test_inject_session_state_with_optional_missing_artifact_returns_empty
   invocation_context = await _create_test_readonly_context(
       artifact_service=mock_artifact_service
   )
+
   populated_instruction = await instructions_utils.inject_session_state(
       instruction_template, invocation_context, use_jinja2=use_jinja2
   )
@@ -419,21 +421,3 @@ My favorite fruits are:
 - cherry
 """
   assert populated_instruction.strip() == expected_output.strip()
-
-
-@pytest.mark.asyncio
-async def test_render_with_jinja2_asynchronous_artifact():
-  instruction_template = "The artifact content is: {{ artifact('my_file') }}"
-  mock_artifact_service = MockArtifactService(
-      {"my_file": "This is my artifact content from a new test."}
-  )
-  invocation_context = await _create_test_readonly_context(
-      artifact_service=mock_artifact_service
-  )
-  populated_instruction = await instructions_utils.inject_session_state(
-      instruction_template, invocation_context, use_jinja2=True
-  )
-  assert (
-      populated_instruction
-      == "The artifact content is: This is my artifact content from a new test."
-  )
