@@ -39,7 +39,7 @@ class _InstructionsLlmRequestProcessor(BaseLlmRequestProcessor):
 
   @override
   async def run_async(
-      self, invocation_context: InvocationContext, llm_request: LlmRequest
+      self, invocation_context: InvocationContext, llm_request: LlmRequest, use_jinja2_template: bool = False
   ) -> AsyncGenerator[Event, None]:
     from ...agents.base_agent import BaseAgent
     from ...agents.llm_agent import LlmAgent
@@ -62,7 +62,7 @@ class _InstructionsLlmRequestProcessor(BaseLlmRequestProcessor):
       si = raw_si
       if not bypass_state_injection:
         si = await instructions_utils.inject_session_state(
-            raw_si, ReadonlyContext(invocation_context)
+            raw_si, ReadonlyContext(invocation_context), use_jinja2=use_jinja2_template,
         )
       llm_request.append_instructions([si])
 
@@ -74,7 +74,7 @@ class _InstructionsLlmRequestProcessor(BaseLlmRequestProcessor):
       si = raw_si
       if not bypass_state_injection:
         si = await instructions_utils.inject_session_state(
-            raw_si, ReadonlyContext(invocation_context)
+            raw_si, ReadonlyContext(invocation_context), use_jinja2=use_jinja2_template,
         )
       llm_request.append_instructions([si])
 
