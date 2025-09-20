@@ -73,10 +73,6 @@ async def inject_session_state(
     return await _render_with_jinja2(template, readonly_context)
   else:
     return await _render_with_regex(template, readonly_context)
-  # end if
-
-
-# end def
 
 
 async def _render_with_regex(
@@ -168,14 +164,20 @@ async def _render_with_jinja2(
   invocation_context = readonly_context._invocation_context
 
   # Create a dictionary of variables to pass to the template.
-  template_variables = {}
-  if invocation_context.session and invocation_context.session.state:
-    template_variables.update(invocation_context.session.state)
-  # end if
+  template_variables = {
+      'state': (
+          invocation_context.session.state
+          if invocation_context.session and invocation_context.session.state
+          else {}
+      )
+  }
 
-  async def get_artifact(filename: str):
+  async def get_artifact(filename: str, default_value: str = None):
     if invocation_context.artifact_service is None:
       raise ValueError('Artifact service is not initialized.')
+
+    if filename == '':
+      raise KeyError('Artifact  not found.')
 
     artifact = await invocation_context.artifact_service.load_artifact(
         app_name=invocation_context.session.app_name,
@@ -184,11 +186,12 @@ async def _render_with_jinja2(
         filename=filename,
     )
     if artifact is None:
-      logger.debug(f'Artifact {filename} not found.')
-      return None
+      if default_value is not None:
+        return default_value
+      else:
+        raise KeyError(f'Artifact {filename} not found.')
     return str(artifact)
 
-  # end def
   template_variables['artifact'] = get_artifact
 
   env = jinja2.Environment(
@@ -200,7 +203,6 @@ async def _render_with_jinja2(
   )
 
   return rendered_template
-
 
 
 def _is_valid_state_name(var_name):

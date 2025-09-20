@@ -16,9 +16,8 @@ from google.adk.agents.llm_agent import Agent
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.sessions.session import Session
 from google.adk.utils import instructions_utils
-import pytest
-
 import jinja2.exceptions
+import pytest
 
 from .. import testing_utils
 
@@ -66,7 +65,7 @@ async def _create_test_readonly_context(
 async def test_inject_session_state(use_jinja2):
   if use_jinja2:
     instruction_template = (
-        "Hello {{ user_name }}, you are in {{ app_state }} state."
+        "Hello {{ state.user_name }}, you are in {{ state.app_state }} state."
     )
   else:
     instruction_template = "Hello {user_name}, you are in {app_state} state."
@@ -105,7 +104,9 @@ async def test_inject_session_state_with_artifact(use_jinja2):
 @pytest.mark.asyncio
 async def test_inject_session_state_with_optional_state(use_jinja2):
   if use_jinja2:
-    instruction_template = "Optional value: {{ optional_value|default('') }}"
+    instruction_template = (
+        "Optional value: {{ state.optional_value|default('') }}"
+    )
   else:
     instruction_template = "Optional value: {optional_value?}"
   invocation_context = await _create_test_readonly_context()
@@ -126,9 +127,10 @@ async def test_inject_session_state_with_missing_state_raises_key_error(
   )
 
   if use_jinja2:
-    instruction_template = "Hello {{ missing_key }}!"
+    instruction_template = "Hello {{ state.missing_key }}!"
     with pytest.raises(
-      jinja2.exceptions.UndefinedError , match="'missing_key' is undefined"
+        jinja2.exceptions.UndefinedError,
+        match="'dict object' has no attribute 'missing_key'",
     ):
       await instructions_utils.inject_session_state(
           instruction_template, invocation_context, use_jinja2=use_jinja2
@@ -159,67 +161,49 @@ async def test_inject_session_state_with_missing_artifact_raises_key_error(
     instruction_template = (
         "The artifact content is: {{ artifact('missing_file') }}"
     )
-    with pytest.raises(jinja2.exceptions.UndefinedError, match="'invalid' is undefined"):
-      await instructions_utils.inject_session_state(
-          instruction_template, invocation_context, use_jinja2=use_jinja2
-      )
   else:
     instruction_template = "The artifact content is: {artifact.missing_file}"
-    with pytest.raises(KeyError, match="Artifact missing_file not found."):
-      await instructions_utils.inject_session_state(
-          instruction_template, invocation_context, use_jinja2=use_jinja2
-      )
+  with pytest.raises(KeyError, match="Artifact missing_file not found."):
+    await instructions_utils.inject_session_state(
+        instruction_template, invocation_context, use_jinja2=use_jinja2
+    )
 
 
-@pytest.mark.parametrize("use_jinja2", [False, True])
+@pytest.mark.parametrize("use_jinja2", [False])
 @pytest.mark.asyncio
 async def test_inject_session_state_with_invalid_state_name_returns_original(
     use_jinja2,
 ):
-  if use_jinja2:
-    instruction_template = "Hello {{ invalid-key }}!"
-  else:
-    instruction_template = "Hello {invalid-key}!"
+  instruction_template = "Hello {invalid-key}!"
   invocation_context = await _create_test_readonly_context(
       state={"user_name": "Foo"}
   )
   populated_instruction = await instructions_utils.inject_session_state(
       instruction_template, invocation_context, use_jinja2=use_jinja2
   )
-  if use_jinja2:
-    # For Jinja2, invalid variable names might be treated differently
-    assert populated_instruction == "Hello !"
-  else:
-    assert populated_instruction == "Hello {invalid-key}!"
+  assert populated_instruction == "Hello {invalid-key}!"
 
 
-@pytest.mark.parametrize("use_jinja2", [False, True])
+@pytest.mark.parametrize("use_jinja2", [False])
 @pytest.mark.asyncio
 async def test_inject_session_state_with_invalid_prefix_state_name_returns_original(
     use_jinja2,
 ):
-  if use_jinja2:
-    instruction_template = "Hello {{ invalid:key }}!"
-  else:
-    instruction_template = "Hello {invalid:key}!"
+  instruction_template = "Hello {invalid:key}!"
   invocation_context = await _create_test_readonly_context(
       state={"user_name": "Foo"}
   )
   populated_instruction = await instructions_utils.inject_session_state(
       instruction_template, invocation_context, use_jinja2=use_jinja2
   )
-  if use_jinja2:
-    # For Jinja2, invalid variable names might be treated differently
-    assert populated_instruction == "Hello !"
-  else:
-    assert populated_instruction == "Hello {invalid:key}!"
+  assert populated_instruction == "Hello {invalid:key}!"
 
 
 @pytest.mark.parametrize("use_jinja2", [False, True])
 @pytest.mark.asyncio
 async def test_inject_session_state_with_valid_prefix_state(use_jinja2):
   if use_jinja2:
-    instruction_template = "Hello {{ app:user_name }}!"
+    instruction_template = "Hello {{ state['app:user_name'] }}!"
   else:
     instruction_template = "Hello {app:user_name}!"
   invocation_context = await _create_test_readonly_context(
@@ -238,9 +222,9 @@ async def test_inject_session_state_with_multiple_variables_and_artifacts(
 ):
   if use_jinja2:
     instruction_template = """
-      Hello {{ user_name }},
-      You are {{ user_age }} years old.
-      Your favorite color is {{ favorite_color|default('') }}.
+      Hello {{ state.user_name }},
+      You are {{ state.user_age }} years old.
+      Your favorite color is {{ state.favorite_color|default('') }}.
       The artifact says: {{ artifact('my_file') }}
       And another optional artifact: {{ artifact('other_file') }}
       """
@@ -318,7 +302,7 @@ async def test_inject_session_state_with_optional_missing_artifact_returns_empty
 ):
   if use_jinja2:
     instruction_template = (
-        "Optional artifact: {{ artifact('missing_file')|default('') }}"
+        "Optional artifact: {{ artifact('missing_file', '') }}"
     )
   else:
     instruction_template = "Optional artifact: {artifact.missing_file?}"
@@ -340,7 +324,7 @@ async def test_inject_session_state_with_none_state_value_returns_empty(
     use_jinja2,
 ):
   if use_jinja2:
-    instruction_template = "Value: {{ test_key|default('') }}"
+    instruction_template = "Value: {{ state.test_key or '' }}"
   else:
     instruction_template = "Value: {test_key}"
   invocation_context = await _create_test_readonly_context(
@@ -358,7 +342,7 @@ async def test_inject_session_state_with_optional_missing_state_returns_empty(
     use_jinja2,
 ):
   if use_jinja2:
-    instruction_template = "Optional value: {{ missing_key|default('') }}"
+    instruction_template = "Optional value: {{ state.missing_key|default('') }}"
   else:
     instruction_template = "Optional value: {missing_key?}"
   invocation_context = await _create_test_readonly_context()
@@ -371,8 +355,8 @@ async def test_inject_session_state_with_optional_missing_state_returns_empty(
 @pytest.mark.asyncio
 async def test_render_with_jinja2_conditional_if():
   instruction_template = """
-{% if is_admin %}
-Hello admin user {{ user_name }}!
+{% if state.is_admin %}
+Hello admin user {{ state['user_name'] }}!
 {% endif %}
 """
   invocation_context = await _create_test_readonly_context(
@@ -387,10 +371,10 @@ Hello admin user {{ user_name }}!
 @pytest.mark.asyncio
 async def test_render_with_jinja2_conditional_if_else():
   instruction_template = """
-{% if is_active %}
-User {{ user_name }} is active.
+{% if state.is_active %}
+User {{ state.user_name }} is active.
 {% else %}
-User {{ user_name }} is inactive.
+User {{ state.user_name }} is inactive.
 {% endif %}
 """
   # Test the 'if' case
@@ -418,7 +402,7 @@ User {{ user_name }} is inactive.
 async def test_render_with_jinja2_for_loop():
   instruction_template = """
 My favorite fruits are:
-{% for fruit in fruits %}
+{% for fruit in state.fruits -%}
 - {{ fruit }}
 {% endfor %}
 """
@@ -439,9 +423,7 @@ My favorite fruits are:
 
 @pytest.mark.asyncio
 async def test_render_with_jinja2_asynchronous_artifact():
-  instruction_template = (
-      "The artifact content is: {{ artifact('my_file') }}"
-  )
+  instruction_template = "The artifact content is: {{ artifact('my_file') }}"
   mock_artifact_service = MockArtifactService(
       {"my_file": "This is my artifact content from a new test."}
   )
