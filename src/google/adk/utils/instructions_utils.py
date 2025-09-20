@@ -73,6 +73,10 @@ async def inject_session_state(
     return await _render_with_jinja2(template, readonly_context)
   else:
     return await _render_with_regex(template, readonly_context)
+  # end if
+
+
+# end def
 
 
 async def _render_with_regex(
@@ -166,7 +170,8 @@ async def _render_with_jinja2(
   # Create a dictionary of variables to pass to the template.
   template_variables = {}
   if invocation_context.session and invocation_context.session.state:
-    template_variables['state'] = invocation_context.session.state
+    template_variables.update(invocation_context.session.state)
+  # end if
 
   async def get_artifact(filename: str):
     if invocation_context.artifact_service is None:
@@ -183,14 +188,19 @@ async def _render_with_jinja2(
       return None
     return str(artifact)
 
+  # end def
   template_variables['artifact'] = get_artifact
 
-  env = jinja2.Environment(enable_async=True)
-  rendered_template = await env.from_string(template).render_async(
-      state=invocation_context.session.state,
-      artifact=get_artifact,
+  env = jinja2.Environment(
+      enable_async=True,
+      undefined=jinja2.StrictUndefined,
   )
+  rendered_template = await env.from_string(template).render_async(
+      **template_variables
+  )
+
   return rendered_template
+
 
 
 def _is_valid_state_name(var_name):
